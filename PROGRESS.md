@@ -6,8 +6,7 @@
 
 ## Estado del proyecto
 
-**Inicio:** 2025  
-**Fase actual:** Sesión 2 completada ✅
+**Fase actual:** Sesión 3 completada ✅
 
 ---
 
@@ -18,8 +17,8 @@
 | Estructura base del proyecto | ✅ Completo | Sesión 2 |
 | Backend: FastAPI setup + CORS | ✅ Completo | Sesión 2 |
 | Backend: Pydantic schemas | ✅ Completo | Sesión 2 |
-| Backend: Config + variables de entorno | ✅ Completo | Sesión 2 — pydantic-settings |
-| Backend: FileParser (docx, pdf, xlsx, txt) | ⬜ Pendiente | Sesión 3 |
+| Backend: Config + variables de entorno | ✅ Completo | Sesión 2 |
+| Backend: FileParser (docx, pdf, xlsx, txt) | ✅ Completo | Sesión 3 |
 | Backend: BaseModule + módulos de análisis | ⬜ Pendiente | Sesión 4 |
 | Backend: Integración Claude API | ⬜ Pendiente | Sesión 5 |
 | Backend: Endpoint `/api/v1/analyze` (completo) | ⬜ Pendiente | Sesión 5 |
@@ -35,40 +34,29 @@
 
 ## Decisiones tomadas por sesión
 
-### Sesión 1 — Planeación
-- Stack definido: FastAPI + React + Vite + TailwindCSS
-- Patrón de módulos: Strategy (BaseModule)
-- Tipos de archivo soportados: .docx, .pdf, .xlsx, .txt
-- Interfaz: Web app
-- Endpoint inicial: POST `/api/v1/analyze`
-- Escalabilidad: agregar módulos en `services/modules/` sin tocar el núcleo
+### Sesión 3 — FileParser
 
-### Sesión 2 — Base del backend
-- Se usó `pydantic-settings` para manejar variables de entorno (más moderno que python-dotenv solo)
-- Schemas definidos: `HUResult`, `ProjectSummary`, `AnalyzeResponse`, `ErrorResponse`
-- Ruta `/api/v1/analyze` creada con validación de tipo de archivo (retorna 501 hasta Sesión 5)
-- Ruta `/health` para verificar que el servidor corre
-- `.env.example` incluido, `.env` real en `.gitignore`
+- **Segmentación por patrones regex:** detecta `HU-01`, `HU01`, `HU 01`, `US-01`, `1.`, `Historia 1`
+- **Fallback:** si no detecta patrones de HU, trata el documento completo como una sola HU
+- **Excel (.xlsx):** cada fila = una HU; detecta automáticamente si hay fila de encabezados con columnas relevantes (hu, descripción, etc.)
+- **Word (.docx):** respeta los Headings del documento para ayudar a la segmentación
+- **PDF:** extrae por página y une con doble salto de línea
+- **TXT:** prueba utf-8 → latin-1 → cp1252 para manejar distintas codificaciones
+- La ruta `/analyze` ya valida tamaño del archivo (MAX_FILE_SIZE_MB) y llama a `parse_file`
+- El endpoint retorna HTTP 501 con conteo de HU encontradas hasta que Sesión 5 esté lista
 
 ---
 
-## Archivos creados en Sesión 2
+## Archivos creados/modificados en Sesión 3
 
 ```
-backend/
-├── app/
-│   ├── main.py                         ← FastAPI + CORS
-│   ├── core/config.py                  ← Settings con pydantic-settings
-│   ├── models/schemas.py               ← HUResult, ProjectSummary, AnalyzeResponse
-│   └── api/v1/routes/analyze.py        ← Endpoint POST /api/v1/analyze (stub)
-├── requirements.txt
-└── .env.example
-.gitignore
+backend/app/services/file_parser.py    ← NUEVO — ParsedHU, ParseResult, parsers por tipo
+backend/app/api/v1/routes/analyze.py   ← actualizado — integra FileParser + validación de tamaño
 ```
 
 ---
 
-## Cómo levantar el backend (desde Sesión 2)
+## Cómo levantar el backend
 
 ```bash
 cd backend
@@ -79,10 +67,12 @@ cp .env.example .env            # Editar con tu ANTHROPIC_API_KEY
 uvicorn app.main:app --reload
 ```
 
-Swagger disponible en: http://localhost:8000/docs
+Swagger en: http://localhost:8000/docs  
+ReDoc en:   http://localhost:8000/redoc
 
 ---
 
 ## Problemas conocidos / Deuda técnica
 
-_Ninguno aún._
+- PDFs escaneados (imagen) no tienen texto extraíble con pdfplumber — se puede agregar OCR en el futuro con pytesseract.
+- Documentos Word con tablas de HU no están soportados aún — se puede agregar en iteración futura.
