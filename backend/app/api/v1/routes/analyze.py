@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
 from app.models.schemas import AnalyzeResponse, ErrorResponse
+from app.services.file_parser import parse_file
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -92,11 +94,29 @@ async def analyze_file(
                    f"Use {', '.join(ALLOWED_CONTENT_TYPES.values())}",
         )
 
-    # TODO: Sesión 3 — invocar FileParser
-    # TODO: Sesión 4 — invocar módulos de análisis
-    # TODO: Sesión 5 — invocar Analyzer con Claude API
+    # Validar tamaño del archivo
+    file.file.seek(0, 2)
+    size_mb = file.file.tell() / (1024 * 1024)
+    file.file.seek(0)
+    if size_mb > settings.MAX_FILE_SIZE_MB:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"El archivo supera el tamaño máximo de {settings.MAX_FILE_SIZE_MB} MB.",
+        )
+
+    # Parsear archivo y segmentar HU
+    try:
+        parse_result = await parse_file(file)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+
+    # TODO: Sesión 4 — invocar módulos de análisis por cada HU
+    # TODO: Sesión 5 — invocar Analyzer con Claude API y extracción global
 
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Módulo de análisis en construcción.",
+        detail=f"Parser OK — {parse_result.total_found} HU encontradas en archivo {parse_result.source_type}. Módulo de análisis en construcción.",
     )
