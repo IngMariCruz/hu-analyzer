@@ -32,6 +32,55 @@
 
 ---
 
+## Cómo levantar el proyecto completo
+
+### Backend
+
+```bash
+cd backend
+
+# 1. CREAR el entorno virtual (solo la primera vez)
+python -m venv venv
+# Si python no funciona, probar:  py -m venv venv  o  python3 -m venv venv
+
+# 2. ACTIVAR el entorno virtual
+# Mac/Linux:
+source venv/bin/activate
+# Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+# Windows CMD:
+venv\Scripts\activate.bat
+
+# 3. Instalar dependencias
+pip install -r requirements.txt
+
+# 4. Crear el archivo de entorno
+cp .env.example .env        # Mac/Linux
+copy .env.example .env      # Windows
+
+# 5. Editar .env y agregar tu API key real
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# 6. Levantar el servidor
+uvicorn app.main:app --reload
+# Swagger disponible en: http://localhost:8000/docs
+```
+
+> ⚠️ **Windows PowerShell:** si `.\venv\Scripts\Activate.ps1` falla con error de permisos,
+> ejecutar primero: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+### Frontend (en otra terminal)
+
+```bash
+cd frontend
+
+npm install
+npm run dev
+# App disponible en: http://localhost:5173
+```
+
+---
+
 ## Decisiones tomadas — Sesión 6
 
 - **Firma visual:** anillo SVG circular por HU (`ScoreBadge`) — colores verde/ámbar/rojo según score
@@ -62,23 +111,6 @@ frontend/
         ├── FileUpload.jsx    ← drag & drop + validación client-side
         ├── ResultCard.jsx    ← tarjeta expandible con tabs
         └── ProjectSummary.jsx ← objetivo, stakeholders, reglas de negocio
-```
-
----
-
-## Cómo levantar el proyecto completo (Sesión 7)
-
-```bash
-# Terminal 1 — Backend
-cd backend
-source venv/bin/activate
-uvicorn app.main:app --reload
-
-# Terminal 2 — Frontend
-cd frontend
-npm install
-npm run dev
-# → http://localhost:5173
 ```
 
 ---
