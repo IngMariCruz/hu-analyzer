@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #FAFAF9;
+    color: #111827;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-gray-200 shadow-sm;
+  }
+
+  .badge-score-high {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .badge-score-mid {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+  .badge-score-low {
+    @apply bg-red-50 text-red-700 border border-red-200;
+  }
+}
