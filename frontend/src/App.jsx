@@ -2,19 +2,18 @@ import { useState } from 'react'
 import FileUpload from './components/FileUpload'
 import ResultCard from './components/ResultCard'
 import ProjectSummary from './components/ProjectSummary'
-import { analyzeFile } from './services/api'
+import { analyzeFile, downloadReport } from './services/api'
 
 function LoadingState() {
   return (
     <div className="flex flex-col items-center gap-4 py-16">
       <div className="relative w-16 h-16">
         <div className="absolute inset-0 rounded-full border-4 border-violet-100" />
-        <div className="absolute inset-0 rounded-full border-4 border-violet-600
-          border-t-transparent animate-spin" />
+        <div className="absolute inset-0 rounded-full border-4 border-violet-600 border-t-transparent animate-spin" />
       </div>
       <div className="text-center">
         <p className="font-semibold text-gray-800">Analizando Historias de Usuario</p>
-        <p className="text-sm text-gray-500 mt-1">Esto puede tardar unos segundos...</p>
+        <p className="text-sm text-gray-500 mt-1">Esto puede tardar unos minutos...</p>
       </div>
     </div>
   )
@@ -41,6 +40,7 @@ function ErrorBanner({ message, onDismiss }) {
 
 export default function App() {
   const [loading, setLoading] = useState(false)
+  const [pdfLoading, setPdfLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
 
@@ -48,7 +48,6 @@ export default function App() {
     setLoading(true)
     setError('')
     setResult(null)
-
     try {
       const data = await analyzeFile(file)
       setResult(data)
@@ -56,6 +55,17 @@ export default function App() {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDownloadPdf = async () => {
+    setPdfLoading(true)
+    try {
+      await downloadReport(result)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setPdfLoading(false)
     }
   }
 
@@ -71,33 +81,58 @@ export default function App() {
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
               </svg>
             </div>
             <span className="font-bold text-gray-900 text-lg tracking-tight">HU Analyzer</span>
           </div>
+
           {result && (
-            <button
-              onClick={handleReset}
-              className="text-sm text-violet-600 hover:text-violet-700 font-medium
-                flex items-center gap-1.5 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              Nuevo análisis
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Botón PDF */}
+              <button
+                onClick={handleDownloadPdf}
+                disabled={pdfLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700
+                  disabled:bg-violet-300 text-white text-sm font-semibold rounded-lg
+                  transition-colors duration-200 shadow-sm"
+              >
+                {pdfLoading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    Generando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Descargar PDF
+                  </>
+                )}
+              </button>
+
+              {/* Nuevo análisis */}
+              <button
+                onClick={handleReset}
+                className="text-sm text-violet-600 hover:text-violet-700 font-medium
+                  flex items-center gap-1.5 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Nuevo análisis
+              </button>
+            </div>
           )}
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-10">
-        {/* Hero */}
         {!result && !loading && (
           <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
@@ -105,36 +140,23 @@ export default function App() {
             </h1>
             <p className="text-gray-500 text-base max-w-md mx-auto leading-relaxed">
               Sube un archivo con tus Historias de Usuario y obtén calificaciones,
-              retroalimentación y un resumen del proyecto con IA.
+              retroalimentación y un reporte PDF descargable.
             </p>
           </div>
         )}
 
-        {/* Error */}
         {error && (
           <div className="mb-6">
             <ErrorBanner message={error} onDismiss={() => setError('')} />
           </div>
         )}
 
-        {/* Upload */}
-        {!result && (
-          <FileUpload onFileSelect={handleFileSelect} loading={loading} />
-        )}
-
-        {/* Loading */}
+        {!result && <FileUpload onFileSelect={handleFileSelect} loading={loading} />}
         {loading && <LoadingState />}
 
-        {/* Resultados */}
         {result && !loading && (
           <div className="flex flex-col gap-6">
-            {/* Resumen global primero */}
-            <ProjectSummary
-              summary={result.project_summary}
-              overallScore={result.overall_score}
-            />
-
-            {/* Resultados por HU */}
+            <ProjectSummary summary={result.project_summary} overallScore={result.overall_score} />
             <div>
               <h2 className="text-base font-bold text-gray-900 mb-3">
                 Análisis por Historia de Usuario
