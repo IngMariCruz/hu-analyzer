@@ -2,13 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.v1.routes import analyze
+from app.api.v1.routes import analyze, report
 
-# ── Metadata de tags (aparece como secciones en Swagger) ───────────────────
 tags_metadata = [
     {
         "name": "Análisis",
-        "description": "Endpoints para analizar archivos con Historias de Usuario.",
+        "description": "Endpoints para analizar archivos con HU y generar reportes.",
     },
     {
         "name": "Sistema",
@@ -29,31 +28,19 @@ Sube un archivo con tus HU y obtén:
 - 🎯 **Objetivo del proyecto** inferido del conjunto de HU
 - 👥 **Stakeholders identificados**
 - 📋 **Reglas de negocio** detectadas
+- 📄 **Reporte PDF** descargable
 
 ### Formatos soportados
 `.docx` · `.pdf` · `.xlsx` · `.txt`
-
-### Criterios de evaluación
-- Formato: `Como <usuario> quiero <funcionalidad> para <objetivo>`
-- Usuario válido (no QA, no equipo de desarrollo)
-- Una sola funcionalidad por HU
-- Criterios de aceptación bajo principio **INVEST**
-- Coherencia y ausencia de ambigüedad
 """,
     version="1.0.0",
     openapi_tags=tags_metadata,
-    contact={
-        "name": "Equipo HU Analyzer",
-        "email": "soporte@hu-analyzer.dev",
-    },
-    license_info={
-        "name": "MIT",
-    },
-    docs_url="/docs",       # Swagger UI
-    redoc_url="/redoc",     # ReDoc (vista alternativa)
+    contact={"name": "Equipo HU Analyzer", "email": "soporte@hu-analyzer.dev"},
+    license_info={"name": "MIT"},
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-# ── CORS ───────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_ORIGIN],
@@ -62,16 +49,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Rutas ──────────────────────────────────────────────────────────────────
 app.include_router(analyze.router, prefix="/api/v1")
+app.include_router(report.router, prefix="/api/v1")
 
 
-@app.get(
-    "/health",
-    tags=["Sistema"],
-    summary="Verificar estado del servidor",
-    response_description="Estado y versión actual de la API",
-)
+@app.get("/health", tags=["Sistema"], summary="Verificar estado del servidor")
 async def health_check():
-    """Retorna el estado operativo del servidor y la versión de la API."""
     return {"status": "ok", "version": "1.0.0"}
