@@ -22,24 +22,16 @@ logger = logging.getLogger(__name__)
 _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 4096
+MAX_TOKENS = 16000   # Techo seguro para hasta ~25 HU complejas
 
-
-# ── Construcción del prompt único ────────────────────────────────────────────
 
 def _build_batch_prompt(parsed_hus: list[ParsedHU]) -> str:
-    """
-    Construye un único prompt que analiza TODAS las HU y extrae el resumen
-    global del proyecto. Un solo llamado reemplaza N+1 llamados anteriores.
-    """
     criteria = "\n".join(m.analysis_criteria for m in ACTIVE_MODULES)
 
-    # Sección de HU numeradas
     hus_section = "\n\n".join(
         f"### {hu.hu_id}\n{hu.raw_text}" for hu in parsed_hus
     )
 
-    # Esquema de respuesta esperado
     module_keys = {
         m.response_key: {
             "score": "número 0-10",
@@ -85,8 +77,6 @@ No incluyas markdown ni texto fuera del JSON:
 """
 
 
-# ── Parser de respuesta JSON ─────────────────────────────────────────────────
-
 def _extract_json(raw: str) -> dict:
     """Extrae JSON de la respuesta de Claude de forma robusta."""
     try:
@@ -112,10 +102,7 @@ def _extract_json(raw: str) -> dict:
     return {}
 
 
-# ── Cálculo de calificación ──────────────────────────────────────────────────
-
 def _calculate_weighted_score(module_data: dict) -> float:
-    """Calcula el promedio ponderado de los módulos para una HU."""
     total = 0.0
     total_weight = 0.0
     for module in ACTIVE_MODULES:
@@ -128,18 +115,7 @@ def _calculate_weighted_score(module_data: dict) -> float:
     return round(max(1.0, min(10.0, total / total_weight)), 1)
 
 
-# ── Punto de entrada principal ───────────────────────────────────────────────
-
 async def analyze(parsed_hus: list[ParsedHU]) -> AnalyzeResponse:
-    """
-    Analiza todas las HU en UN solo llamado a Claude.
-
-    Args:
-        parsed_hus: lista de HU extraídas por FileParser.
-
-    Returns:
-        AnalyzeResponse con resultados individuales y resumen global.
-    """
     if not parsed_hus:
         raise ValueError("No se encontraron Historias de Usuario para analizar.")
 
@@ -158,17 +134,13 @@ async def analyze(parsed_hus: list[ParsedHU]) -> AnalyzeResponse:
 
     data = _extract_json(response.content[0].text)
 
-    # ── Construir resultados por HU ──────────────────────────────────────────
     hu_results: list[HUResult] = []
     raw_hu_results = data.get("hu_results", [])
-
-    # Mapear respuesta por hu_id para acceso rápido
     results_by_id = {r.get("hu_id", ""): r for r in raw_hu_results}
 
     for parsed_hu in parsed_hus:
         hu_data = results_by_id.get(parsed_hu.hu_id, {})
 
-        # Agregar feedback y sugerencias de todos los módulos
         all_feedback: list[str] = []
         all_suggestions: list[str] = []
         for module in ACTIVE_MODULES:
@@ -186,7 +158,6 @@ async def analyze(parsed_hus: list[ParsedHU]) -> AnalyzeResponse:
             suggestions=all_suggestions,
         ))
 
-    # ── Construir resumen del proyecto ───────────────────────────────────────
     summary_data = data.get("project_summary", {})
     project_summary = ProjectSummary(
         objective=summary_data.get("objective", "No se pudo determinar el objetivo."),
