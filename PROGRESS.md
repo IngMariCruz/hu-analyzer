@@ -6,7 +6,7 @@
 
 ## Estado del proyecto
 
-**Fase actual:** Sesión 3 completada ✅
+**Fase actual:** Sesión 4 completada ✅
 
 ---
 
@@ -19,8 +19,8 @@
 | Backend: Pydantic schemas | ✅ Completo | Sesión 2 |
 | Backend: Config + variables de entorno | ✅ Completo | Sesión 2 |
 | Backend: FileParser (docx, pdf, xlsx, txt) | ✅ Completo | Sesión 3 |
-| Backend: BaseModule + módulos de análisis | ⬜ Pendiente | Sesión 4 |
-| Backend: Integración Claude API | ⬜ Pendiente | Sesión 5 |
+| Backend: BaseModule + módulos de análisis | ✅ Completo | Sesión 4 |
+| Backend: Integración Claude API + Analyzer | ⬜ Pendiente | Sesión 5 |
 | Backend: Endpoint `/api/v1/analyze` (completo) | ⬜ Pendiente | Sesión 5 |
 | Backend: Extracción global (objetivo/stakeholders/reglas) | ⬜ Pendiente | Sesión 5 |
 | Frontend: Setup React + Vite + Tailwind | ⬜ Pendiente | Sesión 6 |
@@ -34,24 +34,40 @@
 
 ## Decisiones tomadas por sesión
 
-### Sesión 3 — FileParser
+### Sesión 4 — Módulos de análisis
 
-- **Segmentación por patrones regex:** detecta `HU-01`, `HU01`, `HU 01`, `US-01`, `1.`, `Historia 1`
-- **Fallback:** si no detecta patrones de HU, trata el documento completo como una sola HU
-- **Excel (.xlsx):** cada fila = una HU; detecta automáticamente si hay fila de encabezados con columnas relevantes (hu, descripción, etc.)
-- **Word (.docx):** respeta los Headings del documento para ayudar a la segmentación
-- **PDF:** extrae por página y une con doble salto de línea
-- **TXT:** prueba utf-8 → latin-1 → cp1252 para manejar distintas codificaciones
-- La ruta `/analyze` ya valida tamaño del archivo (MAX_FILE_SIZE_MB) y llama a `parse_file`
-- El endpoint retorna HTTP 501 con conteo de HU encontradas hasta que Sesión 5 esté lista
+- **Patrón Strategy confirmado:** cada módulo hereda `BaseModule` e implementa `parse_response`
+- **Un solo prompt compuesto:** el `Analyzer` (Sesión 5) enviará UN llamado a Claude con los criterios de todos los módulos embebidos → respuesta JSON con clave por módulo → cada módulo parsea su sección
+- **Pesos finales:** FormatChecker 20% · UserChecker 20% · FunctionalityChecker 20% · InvestChecker 25% · CoherenceChecker 15% → suma exacta 1.0
+- **Registro central:** `services/modules/__init__.py` → `ACTIVE_MODULES` — agregar un módulo nuevo solo requiere crear el archivo y registrarlo aquí
+
+### Sesión 3 — FileParser
+- Segmentación por regex; fallback a documento completo si no hay patrones
+- Excel: cada fila = HU; detección automática de encabezados
+- TXT: prueba utf-8 → latin-1 → cp1252
+
+### Sesión 2 — Base del backend
+- pydantic-settings para variables de entorno
+- Schemas: HUResult, ProjectSummary, AnalyzeResponse, ErrorResponse
+- Endpoint /analyze con validación de tipo y tamaño de archivo
+
+### Sesión 1 — Planeación
+- Stack: FastAPI + React + Vite + TailwindCSS
+- Tipos de archivo: .docx, .pdf, .xlsx, .txt
 
 ---
 
-## Archivos creados/modificados en Sesión 3
+## Archivos creados en Sesión 4
 
 ```
-backend/app/services/file_parser.py    ← NUEVO — ParsedHU, ParseResult, parsers por tipo
-backend/app/api/v1/routes/analyze.py   ← actualizado — integra FileParser + validación de tamaño
+backend/app/services/modules/
+├── base_module.py              ← BaseModule abstracta + ModuleResult dataclass
+├── format_checker.py           ← Valida estructura Como/Quiero/Para (peso 20%)
+├── user_checker.py             ← Valida usuario de negocio, no técnico (peso 20%)
+├── functionality_checker.py    ← Valida funcionalidad única + objetivo claro (peso 20%)
+├── invest_checker.py           ← Evalúa criterios de aceptación vs INVEST (peso 25%)
+├── coherence_checker.py        ← Detecta ambigüedad y contradicciones (peso 15%)
+└── __init__.py                 ← ACTIVE_MODULES — registro central de módulos
 ```
 
 ---
@@ -60,19 +76,17 @@ backend/app/api/v1/routes/analyze.py   ← actualizado — integra FileParser + 
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # Editar con tu ANTHROPIC_API_KEY
+cp .env.example .env   # agregar ANTHROPIC_API_KEY
 uvicorn app.main:app --reload
+# Swagger → http://localhost:8000/docs
 ```
-
-Swagger en: http://localhost:8000/docs  
-ReDoc en:   http://localhost:8000/redoc
 
 ---
 
-## Problemas conocidos / Deuda técnica
+## Deuda técnica
 
-- PDFs escaneados (imagen) no tienen texto extraíble con pdfplumber — se puede agregar OCR en el futuro con pytesseract.
-- Documentos Word con tablas de HU no están soportados aún — se puede agregar en iteración futura.
+- PDFs escaneados (imagen) no tienen texto extraíble → agregar OCR con pytesseract en iteración futura
+- Word con HU en tablas no soportado aún → iteración futura
+- Múltiples llamadas a Claude se pueden optimizar con batch en el futuro
