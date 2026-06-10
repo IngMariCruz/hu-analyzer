@@ -1,8 +1,14 @@
+import logging
+
+import anthropic
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
+
+from app.core.config import settings
 from app.models.schemas import AnalyzeResponse, ErrorResponse
 from app.services.file_parser import parse_file
-from app.core.config import settings
+from app.services.analyzer import analyze
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_CONTENT_TYPES = {
@@ -20,52 +26,41 @@ ALLOWED_CONTENT_TYPES = {
     response_description="Calificaciones, retroalimentación y resumen del proyecto",
     response_model=AnalyzeResponse,
     responses={
-        200: {
-            "description": "Análisis completado exitosamente.",
-            "model": AnalyzeResponse,
-        },
+        200: {"description": "Análisis completado exitosamente.", "model": AnalyzeResponse},
         422: {
             "description": "Archivo inválido o tipo no soportado.",
             "model": ErrorResponse,
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Tipo de archivo no soportado: application/zip. Use .docx, .pdf, .xlsx o .txt",
-                        "code": "UNSUPPORTED_FILE_TYPE",
-                    }
-                }
-            },
+            "content": {"application/json": {"example": {
+                "detail": "Tipo de archivo no soportado: application/zip. Use .docx, .pdf, .xlsx o .txt",
+                "code": "UNSUPPORTED_FILE_TYPE",
+            }}},
         },
         413: {
-            "description": "El archivo supera el tamaño máximo permitido (10 MB).",
+            "description": "El archivo supera el tamaño máximo permitido.",
             "model": ErrorResponse,
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "El archivo supera el tamaño máximo de 10 MB.",
-                        "code": "FILE_TOO_LARGE",
-                    }
-                }
-            },
+            "content": {"application/json": {"example": {
+                "detail": "El archivo supera el tamaño máximo de 10 MB.",
+                "code": "FILE_TOO_LARGE",
+            }}},
         },
         500: {
             "description": "Error interno del servidor.",
             "model": ErrorResponse,
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": "Error al procesar el archivo. Intente nuevamente.",
-                        "code": "INTERNAL_ERROR",
-                    }
-                }
-            },
+            "content": {"application/json": {"example": {
+                "detail": "Error al procesar el archivo. Intente nuevamente.",
+                "code": "INTERNAL_ERROR",
+            }}},
         },
     },
 )
 async def analyze_file(
     file: UploadFile = File(
         ...,
-        description="Archivo con las Historias de Usuario. Formatos aceptados: .docx, .pdf, .xlsx, .txt. Tamaño máximo: 10 MB.",
+        description=(
+            "Archivo con las Historias de Usuario. "
+            "Formatos aceptados: .docx, .pdf, .xlsx, .txt. "
+            "Tamaño máximo: 10 MB."
+        ),
     ),
 ):
     """
@@ -86,15 +81,17 @@ async def analyze_file(
     - ✅ Criterios de aceptación bajo principio INVEST
     - ✅ Coherencia y ausencia de ambigüedad
     """
-    # Validar tipo de archivo
+    # 1. Validar tipo de archivo
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Tipo de archivo no soportado: {file.content_type}. "
-                   f"Use {', '.join(ALLOWED_CONTENT_TYPES.values())}",
+            detail=(
+                f"Tipo de archivo no soportado: {file.content_type}. "
+                f"Use {', '.join(ALLOWED_CONTENT_TYPES.values())}"
+            ),
         )
 
-    # Validar tamaño del archivo
+    # 2. Validar tamaño
     file.file.seek(0, 2)
     size_mb = file.file.tell() / (1024 * 1024)
     file.file.seek(0)
@@ -104,19 +101,39 @@ async def analyze_file(
             detail=f"El archivo supera el tamaño máximo de {settings.MAX_FILE_SIZE_MB} MB.",
         )
 
-    # Parsear archivo y segmentar HU
+    # 3. Parsear archivo y segmentar HU
     try:
         parse_result = await parse_file(file)
-    except ValueError as e:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
+            detail=str(exc),
         )
 
-    # TODO: Sesión 4 — invocar módulos de análisis por cada HU
-    # TODO: Sesión 5 — invocar Analyzer con Claude API y extracción global
+    # 4. Analizar con Claude
+    try:
+        result = await analyze(parse_result.hus)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    except anthropic.AuthenticationError:
+        logger.error("API key de Anthropic inválida o expirada.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error de autenticación con el servicio de IA. Contacte al administrador.",
+        )
+    except anthropic.RateLimitError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Se alcanzó el límite de solicitudes. Intente nuevamente en unos momentos.",
+        )
+    except anthropic.APIError as exc:
+        logger.error("Error de API Anthropic: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al comunicarse con el servicio de IA. Intente nuevamente.",
+        )
 
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=f"Parser OK — {parse_result.total_found} HU encontradas en archivo {parse_result.source_type}. Módulo de análisis en construcción.",
-    )
+    return result
