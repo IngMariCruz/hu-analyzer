@@ -6,7 +6,7 @@
 
 ## Estado del proyecto
 
-**Fase actual:** Sesión 5 completada ✅ — Backend funcional de punta a punta
+**Fase actual:** Sesión 6 completada ✅ — Frontend listo, falta integración final
 
 ---
 
@@ -23,67 +23,69 @@
 | Backend: Analyzer + integración Claude API | ✅ Completo | Sesión 5 |
 | Backend: Endpoint `/api/v1/analyze` (completo) | ✅ Completo | Sesión 5 |
 | Backend: Extracción global (objetivo/stakeholders/reglas) | ✅ Completo | Sesión 5 |
-| Frontend: Setup React + Vite + Tailwind | ⬜ Pendiente | Sesión 6 |
-| Frontend: Componente FileUpload | ⬜ Pendiente | Sesión 6 |
-| Frontend: Vista de resultados por HU | ⬜ Pendiente | Sesión 6 |
-| Frontend: Vista resumen del proyecto | ⬜ Pendiente | Sesión 6 |
+| Frontend: Setup React + Vite + Tailwind | ✅ Completo | Sesión 6 |
+| Frontend: Componente FileUpload | ✅ Completo | Sesión 6 |
+| Frontend: Vista de resultados por HU | ✅ Completo | Sesión 6 |
+| Frontend: Vista resumen del proyecto | ✅ Completo | Sesión 6 |
 | Integración frontend ↔ backend | ⬜ Pendiente | Sesión 7 |
 | Pruebas con archivos reales | ⬜ Pendiente | Sesión 7 |
 
 ---
 
-## Decisiones tomadas — Sesión 5
+## Decisiones tomadas — Sesión 6
 
-- **Un llamado a Claude por HU:** prompt compuesto con criterios de todos los módulos → respuesta JSON con clave por módulo → cada módulo parsea su sección
-- **Segundo llamado global:** al finalizar todas las HU, un llamado adicional extrae objetivo, stakeholders y reglas de negocio del conjunto completo
-- **Parser JSON robusto:** `_extract_json` maneja JSON puro, bloques ```json```, y búsqueda con regex — Claude a veces envuelve aunque se le diga que no
-- **Errores Anthropic tipados:** `AuthenticationError`, `RateLimitError`, `APIError` → cada uno retorna HTTP correcto (500, 429, 500)
-- **Modelo:** `claude-sonnet-4-5` — balance costo/calidad para análisis semántico
-
----
-
-## Archivos creados/modificados — Sesión 5
-
-```
-backend/app/services/analyzer.py          ← NUEVO — Analyzer completo
-backend/app/api/v1/routes/analyze.py      ← actualizado — endpoint funcional sin stubs
-```
+- **Firma visual:** anillo SVG circular por HU (`ScoreBadge`) — colores verde/ámbar/rojo según score
+- **ResultCard expandible:** clic en la tarjeta despliega el texto original + tabs de Observaciones/Sugerencias
+- **Proxy en Vite:** `/api → http://localhost:8000` — no hay CORS en desarrollo local
+- **Fuentes:** Inter (cuerpo) + JetBrains Mono (IDs de HU) via Google Fonts
+- **Paleta:** fondo #FAFAF9, texto #111827, acento violeta-600 (#7C3AED), score colores semánticos
+- **Flujo App:** upload → loading spinner → ProjectSummary (arriba) + lista de ResultCards
 
 ---
 
-## Flujo completo (backend operativo)
+## Archivos creados — Sesión 6
 
 ```
-POST /api/v1/analyze  (archivo)
-  → Validar tipo y tamaño
-  → FileParser → list[ParsedHU]
-  → Por cada HU:
-      → Prompt compuesto (criterios de 5 módulos)
-      → Claude API → JSON
-      → Cada módulo parsea su sección → ModuleResult
-      → Score ponderado
-  → Llamado global → ProjectSummary
-  → AnalyzeResponse
+frontend/
+├── package.json
+├── vite.config.js            ← proxy /api → backend
+├── postcss.config.js
+├── tailwind.config.js        ← paleta violeta extendida + fuentes
+├── index.html                ← Google Fonts Inter + JetBrains Mono
+└── src/
+    ├── index.css             ← @tailwind + clases card, badge-score-*
+    ├── main.jsx
+    ├── App.jsx               ← estado global, flujo upload→loading→resultados
+    ├── services/api.js       ← analyzeFile(file) → fetch POST /api/v1/analyze
+    └── components/
+        ├── ScoreBadge.jsx    ← anillo SVG con animación
+        ├── FileUpload.jsx    ← drag & drop + validación client-side
+        ├── ResultCard.jsx    ← tarjeta expandible con tabs
+        └── ProjectSummary.jsx ← objetivo, stakeholders, reglas de negocio
 ```
 
 ---
 
-## Cómo levantar el backend
+## Cómo levantar el proyecto completo (Sesión 7)
 
 ```bash
+# Terminal 1 — Backend
 cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # poner ANTHROPIC_API_KEY real
+source venv/bin/activate
 uvicorn app.main:app --reload
-# Swagger → http://localhost:8000/docs
-# Probar con POST /api/v1/analyze subiendo un .txt con HU de prueba
+
+# Terminal 2 — Frontend
+cd frontend
+npm install
+npm run dev
+# → http://localhost:5173
 ```
 
 ---
 
 ## Deuda técnica
 
-- PDFs escaneados sin texto → agregar OCR (pytesseract) en iteración futura
+- PDFs escaneados sin texto → OCR con pytesseract (iteración futura)
 - Word con HU en tablas → iteración futura
-- Las HU se analizan secuencialmente → se puede paralelizar con `asyncio.gather` si el volumen crece
+- HU analizadas secuencialmente → paralelizar con asyncio.gather si el volumen crece
+- Frontend sin tests → agregar Vitest en iteración futura
