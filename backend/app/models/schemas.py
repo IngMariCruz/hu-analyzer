@@ -88,6 +88,20 @@ class ProjectSummary(BaseModel):
 # ── Respuesta completa del análisis ────────────────────────────────────────
 
 class AnalyzeResponse(BaseModel):
+    status: str = Field(
+        default="ok",
+        description="Resultado del gate de pertinencia/validez: 'ok', 'no_project' o 'invalid'",
+        examples=["ok"],
+    )
+    message: str | None = Field(
+        default=None,
+        description="Mensaje para el usuario cuando status no es 'ok' (qué falta o por qué)",
+    )
+    story_count: int = Field(
+        default=0,
+        description="Número de Historias de Usuario detectadas en el documento",
+        examples=[5],
+    )
     hu_results: list[HUResult] = Field(
         default_factory=list,
         description="Análisis individual de cada HU encontrada en el archivo",
@@ -98,9 +112,9 @@ class AnalyzeResponse(BaseModel):
     )
     overall_score: float = Field(
         ...,
-        ge=1.0,
+        ge=0.0,
         le=10.0,
-        description="Promedio ponderado de las calificaciones de todas las HU",
+        description="Promedio ponderado de las calificaciones de todas las HU (0 si no se analizó)",
         examples=[7.2],
     )
 

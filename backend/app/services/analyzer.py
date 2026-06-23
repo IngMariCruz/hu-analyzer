@@ -130,6 +130,8 @@ async def analyze(
     logger.info("Análisis completo — %d HU, score global: %s", len(hu_results), overall)
 
     return AnalyzeResponse(
+        status="ok",
+        story_count=len(hu_results),
         hu_results=hu_results,
         project_summary=project_summary,
         overall_score=overall,

@@ -6,7 +6,15 @@ La lista de módulos por HU es estática (sin claves dinámicas) para ser
 compatible con los esquemas estrictos de OpenAI.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+
+class GateResult(BaseModel):
+    """Clasificación de pertinencia/validez del documento (gate previo al análisis)."""
+    status: Literal["ok", "no_project", "invalid"]
+    message: str
 
 
 class ModuleEvaluation(BaseModel):

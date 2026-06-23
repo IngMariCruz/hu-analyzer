@@ -4,9 +4,22 @@ import openai
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
 
 from app.core.config import settings
-from app.models.schemas import AnalyzeResponse, ErrorResponse
+from app.models.schemas import AnalyzeResponse, ErrorResponse, ProjectSummary
 from app.services.file_parser import parse_file
+from app.services.gate import check_document
 from app.services.analyzer import analyze
+
+
+def _gate_response(status_value: str, message: str) -> AnalyzeResponse:
+    """Respuesta cuando el gate detiene el análisis (no_project / invalid / sin HU)."""
+    return AnalyzeResponse(
+        status=status_value,
+        message=message,
+        story_count=0,
+        hu_results=[],
+        project_summary=ProjectSummary(objective="", stakeholders=[], business_rules=[]),
+        overall_score=0.0,
+    )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -110,8 +123,15 @@ async def analyze_file(
             detail=str(exc),
         )
 
-    # 4. Analizar con Claude
+    # 4. Gate de pertinencia/validez y análisis
     try:
+        gate = await check_document(parse_result.raw_text)
+        if gate.status != "ok":
+            return _gate_response(gate.status, gate.message)
+
+        if parse_result.total_found == 0:
+            return _gate_response("ok", "No se detectaron Historias de Usuario en el documento.")
+
         result = await analyze(parse_result.hus)
     except ValueError as exc:
         raise HTTPException(
