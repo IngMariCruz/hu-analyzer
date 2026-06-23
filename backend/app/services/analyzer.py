@@ -1,63 +1,35 @@
 """
 Analyzer: orquestador principal del análisis de Historias de Usuario.
 
-Optimizado para mínimo consumo de tokens:
-- UN solo llamado a Claude con TODAS las HU y el resumen global
-- Modelo Haiku (20x más barato que Sonnet, suficiente para análisis estructurado)
+Un solo llamado al proveedor LLM (GPT-4o mini por defecto) con todas las HU y
+el resumen global, usando salida estructurada (Structured Outputs) para
+garantizar JSON válido. El proveedor es inyectable para pruebas.
 """
 
-import json
-import re
 import logging
 
-import anthropic
-
-from app.core.config import settings
 from app.services.file_parser import ParsedHU
 from app.services.modules import ACTIVE_MODULES
+from app.services.llm import LLMProvider, get_llm_provider
+from app.services.llm.schemas import AnalysisLLMResponse
 from app.models.schemas import AnalyzeResponse, HUResult, ProjectSummary
 
 logger = logging.getLogger(__name__)
 
-_client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 16000   # Techo seguro para hasta ~25 HU complejas
+_SYSTEM_PROMPT = (
+    "Eres un experto en metodologías ágiles especializado en calidad de "
+    "Historias de Usuario. Devuelve únicamente la información solicitada en el "
+    "esquema estructurado, sin texto adicional."
+)
 
 
 def _build_batch_prompt(parsed_hus: list[ParsedHU]) -> str:
     criteria = "\n".join(m.analysis_criteria for m in ACTIVE_MODULES)
+    valid_keys = ", ".join(m.response_key for m in ACTIVE_MODULES)
+    hus_section = "\n\n".join(f"### {hu.hu_id}\n{hu.raw_text}" for hu in parsed_hus)
 
-    hus_section = "\n\n".join(
-        f"### {hu.hu_id}\n{hu.raw_text}" for hu in parsed_hus
-    )
-
-    module_keys = {
-        m.response_key: {
-            "score": "número 0-10",
-            "issues": ["observación citando fragmento del texto original"],
-            "suggestions": ["sugerencia concreta y aplicable"],
-        }
-        for m in ACTIVE_MODULES
-    }
-
-    response_schema = json.dumps(
-        {
-            "hu_results": [
-                {"hu_id": "HU-XX", **module_keys}
-            ],
-            "project_summary": {
-                "objective": "objetivo general del proyecto en 1-2 oraciones",
-                "stakeholders": ["actor 1", "actor 2"],
-                "business_rules": ["regla de negocio 1"],
-            },
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
-
-    return f"""Eres un experto en metodologías ágiles. Analiza las siguientes Historias de Usuario
-y extrae también la información global del proyecto.
+    return f"""Analiza las siguientes Historias de Usuario y extrae también la
+información global del proyecto.
 
 ## Criterios de evaluación por HU
 
@@ -67,39 +39,14 @@ y extrae también la información global del proyecto.
 
 {hus_section}
 
-## Formato de respuesta
+## Instrucciones de respuesta
 
-Responde SOLO con JSON válido con esta estructura exacta.
-Incluye una entrada en hu_results por cada HU listada arriba.
-No incluyas markdown ni texto fuera del JSON:
-
-{response_schema}
+Por cada HU listada arriba devuelve una entrada en `hu_results` con su `hu_id`
+exacto y una lista `modules` con UNA entrada por cada criterio. Usa como `key`
+exactamente uno de: {valid_keys}. Cada módulo lleva `score` (0-10), `issues`
+(observaciones citando el texto) y `suggestions` (mejoras concretas). Incluye
+además `project_summary` con objetivo, stakeholders y reglas de negocio.
 """
-
-
-def _extract_json(raw: str) -> dict:
-    """Extrae JSON de la respuesta de Claude de forma robusta."""
-    try:
-        return json.loads(raw.strip())
-    except json.JSONDecodeError:
-        pass
-
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
-
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
-
-    logger.error("No se pudo extraer JSON: %s", raw[:300])
-    return {}
 
 
 def _calculate_weighted_score(module_data: dict) -> float:
@@ -115,63 +62,72 @@ def _calculate_weighted_score(module_data: dict) -> float:
     return round(max(1.0, min(10.0, total / total_weight)), 1)
 
 
-async def analyze(parsed_hus: list[ParsedHU]) -> AnalyzeResponse:
+async def analyze(
+    parsed_hus: list[ParsedHU],
+    provider: LLMProvider | None = None,
+) -> AnalyzeResponse:
+    """Analiza un conjunto de HU con el proveedor LLM y arma la respuesta.
+
+    Args:
+        parsed_hus: HU segmentadas del documento.
+        provider: proveedor LLM a usar; por defecto el configurado.
+
+    Returns:
+        AnalyzeResponse con el resultado por HU y el resumen del proyecto.
+
+    Raises:
+        ValueError: si no hay HU que analizar.
+    """
     if not parsed_hus:
         raise ValueError("No se encontraron Historias de Usuario para analizar.")
 
-    logger.info("Analizando %d HU en un solo llamado (modelo: %s)", len(parsed_hus), MODEL)
+    provider = provider or get_llm_provider()
 
-    response = await _client.messages.create(
-        model=MODEL,
-        max_tokens=MAX_TOKENS,
-        system=(
-            "Eres un experto en metodologías ágiles especializado en calidad de "
-            "Historias de Usuario. Responde SIEMPRE únicamente con JSON válido, "
-            "sin markdown, sin texto adicional."
-        ),
-        messages=[{"role": "user", "content": _build_batch_prompt(parsed_hus)}],
+    logger.info("Analizando %d HU en un solo llamado estructurado.", len(parsed_hus))
+
+    data: AnalysisLLMResponse = await provider.complete_structured(
+        system=_SYSTEM_PROMPT,
+        prompt=_build_batch_prompt(parsed_hus),
+        schema=AnalysisLLMResponse,
     )
 
-    data = _extract_json(response.content[0].text)
+    results_by_id = {hu.hu_id: hu for hu in data.hu_results}
 
     hu_results: list[HUResult] = []
-    raw_hu_results = data.get("hu_results", [])
-    results_by_id = {r.get("hu_id", ""): r for r in raw_hu_results}
-
     for parsed_hu in parsed_hus:
-        hu_data = results_by_id.get(parsed_hu.hu_id, {})
+        evaluation = results_by_id.get(parsed_hu.hu_id)
 
+        module_data: dict[str, dict] = {}
         all_feedback: list[str] = []
         all_suggestions: list[str] = []
-        for module in ACTIVE_MODULES:
-            module_section = hu_data.get(module.response_key, {})
-            all_feedback.extend(module_section.get("issues", []))
-            all_suggestions.extend(module_section.get("suggestions", []))
-
-        score = _calculate_weighted_score(hu_data)
+        if evaluation is not None:
+            for module in evaluation.modules:
+                module_data[module.key] = {
+                    "score": module.score,
+                    "issues": module.issues,
+                    "suggestions": module.suggestions,
+                }
+                all_feedback.extend(module.issues)
+                all_suggestions.extend(module.suggestions)
 
         hu_results.append(HUResult(
             hu_id=parsed_hu.hu_id,
             original_text=parsed_hu.raw_text,
-            score=score,
+            score=_calculate_weighted_score(module_data),
             feedback=all_feedback,
             suggestions=all_suggestions,
         ))
 
-    summary_data = data.get("project_summary", {})
+    summary = data.project_summary
     project_summary = ProjectSummary(
-        objective=summary_data.get("objective", "No se pudo determinar el objetivo."),
-        stakeholders=summary_data.get("stakeholders", []),
-        business_rules=summary_data.get("business_rules", []),
+        objective=summary.objective or "No se pudo determinar el objetivo.",
+        stakeholders=summary.stakeholders,
+        business_rules=summary.business_rules,
     )
 
     overall = round(sum(r.score for r in hu_results) / len(hu_results), 1)
 
-    logger.info(
-        "Análisis completo — %d HU, score global: %s, tokens usados: %s",
-        len(hu_results), overall,
-        response.usage.input_tokens + response.usage.output_tokens,
-    )
+    logger.info("Análisis completo — %d HU, score global: %s", len(hu_results), overall)
 
     return AnalyzeResponse(
         hu_results=hu_results,

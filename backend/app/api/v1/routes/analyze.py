@@ -1,6 +1,6 @@
 import logging
 
-import anthropic
+import openai
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
 
 from app.core.config import settings
@@ -118,19 +118,19 @@ async def analyze_file(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except anthropic.AuthenticationError:
-        logger.error("API key de Anthropic inválida o expirada.")
+    except openai.AuthenticationError:
+        logger.error("API key de OpenAI inválida o expirada.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error de autenticación con el servicio de IA. Contacte al administrador.",
         )
-    except anthropic.RateLimitError:
+    except openai.RateLimitError:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Se alcanzó el límite de solicitudes. Intente nuevamente en unos momentos.",
         )
-    except anthropic.APIError as exc:
-        logger.error("Error de API Anthropic: %s", exc)
+    except openai.APIError as exc:
+        logger.error("Error de API OpenAI: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al comunicarse con el servicio de IA. Intente nuevamente.",

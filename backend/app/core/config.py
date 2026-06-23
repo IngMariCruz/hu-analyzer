@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    ANTHROPIC_API_KEY: str
+    OPENAI_API_KEY: str
+    LLM_MODEL: str = "gpt-4o-mini"
     FRONTEND_ORIGIN: str = "http://localhost:5173"
     MAX_FILE_SIZE_MB: int = 10
 
