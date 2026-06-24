@@ -1,20 +1,33 @@
 """
-Analyzer: orquestador principal del análisis de Historias de Usuario.
+Analyzer: orquestador híbrido del análisis de Historias de Usuario (Story 1.5).
 
-Un solo llamado al proveedor LLM (GPT-4o mini por defecto) con todas las HU y
-el resumen global, usando salida estructurada (Structured Outputs) para
-garantizar JSON válido. El proveedor es inyectable para pruebas.
+Orquestación:
+- 1 llamada nivel-documento para la inferencia de negocio (objetivo, usuarios
+  finales, reglas de negocio) — ver `inference.py`.
+- 1 llamada por HU en paralelo (`asyncio.gather` + semáforo) para su evaluación.
+
+El proveedor LLM aplica backoff en 429/5xx/timeout (SDK `max_retries`). Si una
+HU sigue fallando tras los reintentos, se marca esa HU sin abortar el resto y el
+documento queda en `status: partial`. La normalización de score (1–100) y las
+bandas viven en la capa de agregación (`scoring.py`), no aquí.
 """
 
+import asyncio
 import logging
 
+from app.core.config import settings
 from app.services.file_parser import ParsedHU
+from app.services.inference import infer_business
 from app.services.modules import ACTIVE_MODULES
+from app.services.scoring import aggregate_hu_score, band_for, overall_average
 from app.services.llm import LLMProvider, get_llm_provider
-from app.services.llm.schemas import AnalysisLLMResponse
+from app.services.llm.schemas import HUEvaluationResponse
 from app.models.schemas import AnalyzeResponse, HUResult, ProjectSummary
 
 logger = logging.getLogger(__name__)
+
+# Score por debajo del cual el sistema genera sugerencias de mejora (Story 1.7).
+SUGGESTION_THRESHOLD = 90
 
 _SYSTEM_PROMPT = (
     "Eres un experto en metodologías ágiles especializado en calidad de "
@@ -23,57 +36,103 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _build_batch_prompt(parsed_hus: list[ParsedHU]) -> str:
+def _build_hu_prompt(hu: ParsedHU) -> str:
     criteria = "\n".join(m.analysis_criteria for m in ACTIVE_MODULES)
     valid_keys = ", ".join(m.response_key for m in ACTIVE_MODULES)
-    hus_section = "\n\n".join(f"### {hu.hu_id}\n{hu.raw_text}" for hu in parsed_hus)
 
-    return f"""Analiza las siguientes Historias de Usuario y extrae también la
-información global del proyecto.
+    return f"""Evalúa la siguiente Historia de Usuario según cada criterio.
 
-## Criterios de evaluación por HU
+## Criterios de evaluación
 
 {criteria}
 
-## Historias de Usuario a analizar
+## Historia de Usuario
 
-{hus_section}
+{hu.raw_text}
 
 ## Instrucciones de respuesta
 
-Por cada HU listada arriba devuelve una entrada en `hu_results` con su `hu_id`
-exacto y una lista `modules` con UNA entrada por cada criterio. Usa como `key`
-exactamente uno de: {valid_keys}. Cada módulo lleva `score` (0-10), `issues`
-(observaciones citando el texto) y `suggestions` (mejoras concretas). Incluye
-además `project_summary` con objetivo, stakeholders y reglas de negocio.
+Devuelve `modules` con UNA entrada por cada criterio. Usa como `key` exactamente
+uno de: {valid_keys}. Cada módulo lleva `score` (0–10), `issues` (observaciones
+citando el texto) y `suggestions` (mejoras concretas y aplicables). Si la HU es
+excelente en un criterio, deja `issues` y `suggestions` vacíos para ese módulo.
 """
 
 
-def _calculate_weighted_score(module_data: dict) -> float:
-    total = 0.0
-    total_weight = 0.0
-    for module in ACTIVE_MODULES:
-        data = module_data.get(module.response_key, {})
-        score = float(data.get("score", 5.0))
-        total += score * module.weight
-        total_weight += module.weight
-    if total_weight == 0:
-        return 5.0
-    return round(max(1.0, min(10.0, total / total_weight)), 1)
+async def _evaluate_hu(
+    hu: ParsedHU,
+    provider: LLMProvider,
+    semaphore: asyncio.Semaphore,
+) -> HUEvaluationResponse | None:
+    """Evalúa una HU; devuelve None si falla tras los reintentos del proveedor."""
+    async with semaphore:
+        try:
+            return await provider.complete_structured(
+                system=_SYSTEM_PROMPT,
+                prompt=_build_hu_prompt(hu),
+                schema=HUEvaluationResponse,
+            )
+        except Exception as exc:  # noqa: BLE001 — degradar esta HU, no abortar el resto
+            logger.warning(
+                "Falló la evaluación de la HU %s tras reintentos: %s",
+                hu.hu_id, type(exc).__name__,
+            )
+            return None
+
+
+def _build_hu_result(hu: ParsedHU, evaluation: HUEvaluationResponse | None) -> HUResult:
+    if evaluation is None:
+        return HUResult(
+            hu_id=hu.hu_id,
+            original_text=hu.raw_text,
+            score=1,
+            band=band_for(1),
+            evaluated=False,
+            feedback=["No se pudo evaluar esta HU; intente reanalizar el documento."],
+            suggestions=[],
+        )
+
+    module_data: dict[str, dict] = {}
+    feedback: list[str] = []
+    suggestions: list[str] = []
+    for module in evaluation.modules:
+        module_data[module.key] = {
+            "score": module.score,
+            "issues": module.issues,
+            "suggestions": module.suggestions,
+        }
+        feedback.extend(module.issues)
+        suggestions.extend(module.suggestions)
+
+    score = aggregate_hu_score(module_data)
+    # Story 1.7: solo las HU con score < 90 requieren sugerencias.
+    if score >= SUGGESTION_THRESHOLD:
+        suggestions = []
+
+    return HUResult(
+        hu_id=hu.hu_id,
+        original_text=hu.raw_text,
+        score=score,
+        band=band_for(score),
+        evaluated=True,
+        feedback=feedback,
+        suggestions=suggestions,
+    )
 
 
 async def analyze(
     parsed_hus: list[ParsedHU],
     provider: LLMProvider | None = None,
 ) -> AnalyzeResponse:
-    """Analiza un conjunto de HU con el proveedor LLM y arma la respuesta.
+    """Analiza un conjunto de HU con orquestación híbrida y arma la respuesta.
 
     Args:
         parsed_hus: HU segmentadas del documento.
         provider: proveedor LLM a usar; por defecto el configurado.
 
     Returns:
-        AnalyzeResponse con el resultado por HU y el resumen del proyecto.
+        AnalyzeResponse con el resultado por HU y la inferencia de negocio.
+        `status` es `partial` si alguna HU no pudo evaluarse.
 
     Raises:
         ValueError: si no hay HU que analizar.
@@ -82,57 +141,40 @@ async def analyze(
         raise ValueError("No se encontraron Historias de Usuario para analizar.")
 
     provider = provider or get_llm_provider()
+    semaphore = asyncio.Semaphore(settings.LLM_MAX_CONCURRENCY)
 
-    logger.info("Analizando %d HU en un solo llamado estructurado.", len(parsed_hus))
-
-    data: AnalysisLLMResponse = await provider.complete_structured(
-        system=_SYSTEM_PROMPT,
-        prompt=_build_batch_prompt(parsed_hus),
-        schema=AnalysisLLMResponse,
+    logger.info(
+        "Analizando %d HU (concurrencia=%d) + inferencia de negocio.",
+        len(parsed_hus), settings.LLM_MAX_CONCURRENCY,
     )
 
-    results_by_id = {hu.hu_id: hu for hu in data.hu_results}
+    evaluations, inference = await asyncio.gather(
+        asyncio.gather(*(_evaluate_hu(hu, provider, semaphore) for hu in parsed_hus)),
+        infer_business(parsed_hus, provider=provider),
+    )
 
-    hu_results: list[HUResult] = []
-    for parsed_hu in parsed_hus:
-        evaluation = results_by_id.get(parsed_hu.hu_id)
+    hu_results = [_build_hu_result(hu, ev) for hu, ev in zip(parsed_hus, evaluations)]
 
-        module_data: dict[str, dict] = {}
-        all_feedback: list[str] = []
-        all_suggestions: list[str] = []
-        if evaluation is not None:
-            for module in evaluation.modules:
-                module_data[module.key] = {
-                    "score": module.score,
-                    "issues": module.issues,
-                    "suggestions": module.suggestions,
-                }
-                all_feedback.extend(module.issues)
-                all_suggestions.extend(module.suggestions)
+    evaluated_scores = [r.score for r in hu_results if r.evaluated]
+    overall = overall_average(evaluated_scores)
+    any_failed = any(not r.evaluated for r in hu_results)
 
-        hu_results.append(HUResult(
-            hu_id=parsed_hu.hu_id,
-            original_text=parsed_hu.raw_text,
-            score=_calculate_weighted_score(module_data),
-            feedback=all_feedback,
-            suggestions=all_suggestions,
-        ))
-
-    summary = data.project_summary
     project_summary = ProjectSummary(
-        objective=summary.objective or "No se pudo determinar el objetivo.",
-        stakeholders=summary.stakeholders,
-        business_rules=summary.business_rules,
+        objective=inference.objective or "No se pudo determinar el objetivo.",
+        stakeholders=inference.end_users,
+        business_rules=inference.business_rules,
     )
 
-    overall = round(sum(r.score for r in hu_results) / len(hu_results), 1)
-
-    logger.info("Análisis completo — %d HU, score global: %s", len(hu_results), overall)
+    logger.info(
+        "Análisis completo — %d HU, promedio: %s, status: %s",
+        len(hu_results), overall, "partial" if any_failed else "ok",
+    )
 
     return AnalyzeResponse(
-        status="ok",
+        status="partial" if any_failed else "ok",
         story_count=len(hu_results),
         hu_results=hu_results,
         project_summary=project_summary,
         overall_score=overall,
+        overall_band=band_for(overall),
     )

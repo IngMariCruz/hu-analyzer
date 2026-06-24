@@ -12,7 +12,7 @@ function Section({ title, icon, children }) {
   )
 }
 
-export default function ProjectSummary({ summary, overallScore }) {
+export default function ProjectSummary({ summary, overallScore, overallBand }) {
   return (
     <div className="card p-6">
       {/* Encabezado con score global */}
@@ -22,7 +22,7 @@ export default function ProjectSummary({ summary, overallScore }) {
           <p className="text-sm text-gray-500 mt-0.5">Extraído del conjunto de Historias de Usuario</p>
         </div>
         <div className="flex flex-col items-center gap-1">
-          <ScoreBadge score={overallScore} size={88} />
+          <ScoreBadge score={overallScore} band={overallBand} size={88} />
           <span className="text-xs text-gray-400">Calificación general</span>
         </div>
       </div>
@@ -36,8 +36,8 @@ export default function ProjectSummary({ summary, overallScore }) {
           </p>
         </Section>
 
-        {/* Stakeholders */}
-        <Section title="Stakeholders identificados" icon="👥">
+        {/* Usuarios finales */}
+        <Section title="Usuarios finales" icon="👥">
           {summary.stakeholders.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {summary.stakeholders.map((s, i) => (
@@ -48,7 +48,7 @@ export default function ProjectSummary({ summary, overallScore }) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-400">No se identificaron stakeholders.</p>
+            <p className="text-sm text-gray-400">No se identificaron usuarios finales.</p>
           )}
         </Section>
 

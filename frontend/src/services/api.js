@@ -24,26 +24,50 @@ export async function analyzeFile(file) {
 }
 
 /**
- * Envía el resultado del análisis al backend y descarga el PDF.
- * @param {object} result - AnalyzeResponse
+ * Recupera un análisis previo por su identificador opaco (sin re-subir el documento).
+ * @param {string} analysisId
+ * @returns {Promise<object>} AnalyzeResponse
  */
-export async function downloadReport(result) {
-  const response = await fetch('/api/v1/report', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(result),
-  })
+export async function getAnalysis(analysisId) {
+  const response = await fetch(`${API_BASE}/analyze/${analysisId}`)
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data.detail || 'No se pudo recuperar el análisis.')
+  }
+  return data
+}
+
+const REPORT_FILENAMES = {
+  business: 'reglas-de-negocio.pdf',
+  hu: 'validacion-hus.pdf',
+}
+
+/**
+ * Descarga un reporte PDF persistido por analysis_id.
+ * @param {string} analysisId
+ * @param {'business'|'hu'} type
+ */
+export async function downloadReportById(analysisId, type) {
+  const response = await fetch(`${API_BASE}/report/${analysisId}?type=${type}`)
 
   if (!response.ok) {
-    const data = await response.json()
-    throw new Error(data.detail || 'Error al generar el reporte.')
+    let detail = 'Error al generar el reporte.'
+    try {
+      detail = (await response.json()).detail || detail
+    } catch {
+      // respuesta sin JSON
+    }
+    if (response.status === 404) {
+      detail = 'El análisis ya no está disponible. Vuelve a subir el documento.'
+    }
+    throw new Error(detail)
   }
 
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'reporte-hu-analyzer.pdf'
+  a.download = REPORT_FILENAMES[type] || 'reporte.pdf'
   a.click()
   URL.revokeObjectURL(url)
 }

@@ -1,9 +1,11 @@
 """
-Esquemas Pydantic de la respuesta estructurada del proveedor LLM.
+Esquemas Pydantic de las respuestas estructuradas del proveedor LLM.
 
 Se usan como `response_format` (Structured Outputs) para garantizar JSON válido.
-La lista de módulos por HU es estática (sin claves dinámicas) para ser
-compatible con los esquemas estrictos de OpenAI.
+La orquestación es híbrida (Story 1.5): una llamada nivel-documento para el gate
+y la inferencia de negocio, y una llamada por HU para su evaluación. Las listas
+de módulos son estáticas (sin claves dinámicas) para ser compatibles con los
+esquemas estrictos de OpenAI.
 """
 
 from typing import Literal
@@ -25,20 +27,13 @@ class ModuleEvaluation(BaseModel):
     suggestions: list[str]
 
 
-class HUEvaluation(BaseModel):
-    """Evaluación completa de una HU con todos sus módulos."""
-    hu_id: str
+class HUEvaluationResponse(BaseModel):
+    """Respuesta estructurada de la evaluación de UNA HU (1 llamada por HU)."""
     modules: list[ModuleEvaluation]
 
 
-class ProjectSummarySchema(BaseModel):
-    """Información global inferida del conjunto de HU."""
+class BusinessInferenceResponse(BaseModel):
+    """Inferencia de negocio nivel-documento, abstraída (NFR de minimización)."""
     objective: str
-    stakeholders: list[str]
+    end_users: list[str]
     business_rules: list[str]
-
-
-class AnalysisLLMResponse(BaseModel):
-    """Respuesta estructurada completa del análisis."""
-    hu_results: list[HUEvaluation]
-    project_summary: ProjectSummarySchema

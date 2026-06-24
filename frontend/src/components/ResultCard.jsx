@@ -12,7 +12,7 @@ export default function ResultCard({ result }) {
         className="flex items-center gap-4 p-5 cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <ScoreBadge score={result.score} size={72} />
+        <ScoreBadge score={result.score} band={result.band} size={72} />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -20,12 +20,18 @@ export default function ResultCard({ result }) {
               px-2 py-0.5 rounded-md border border-violet-200">
               {result.hu_id}
             </span>
-            <span className="text-xs text-gray-400">
-              {result.feedback.length} observaciones · {result.suggestions.length} sugerencias
-            </span>
+            {result.evaluated === false ? (
+              <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
+                No evaluada
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400">
+                {result.feedback.length} observaciones · {result.suggestions.length} sugerencias
+              </span>
+            )}
           </div>
           <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">
-            {result.original_text}
+            {result.original_text || <span className="italic text-gray-400">Texto no disponible (no se almacena el documento).</span>}
           </p>
         </div>
 
