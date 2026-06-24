@@ -24,6 +24,7 @@ class ParseResult:
     hus: list[ParsedHU]
     source_type: str
     total_found: int
+    raw_text: str = ""
 
 
 # ── Patrones de segmentación ────────────────────────────────────────────────
@@ -182,4 +183,9 @@ async def parse_file(file: UploadFile) -> ParseResult:
 
     hus = _segment_hus(raw_text, source_type)
 
-    return ParseResult(hus=hus, source_type=source_type, total_found=len(hus))
+    return ParseResult(
+        hus=hus,
+        source_type=source_type,
+        total_found=len(hus),
+        raw_text=raw_text,
+    )

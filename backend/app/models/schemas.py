@@ -14,12 +14,22 @@ class HUResult(BaseModel):
         description="Texto original de la HU tal como aparece en el archivo",
         examples=["Como cliente quiero ver el historial de compras para revisar mis pedidos anteriores."],
     )
-    score: float = Field(
+    score: int = Field(
         ...,
-        ge=1.0,
-        le=10.0,
-        description="Calificación de 1.0 a 10.0 basada en formato, claridad y criterios INVEST",
-        examples=[7.5],
+        ge=1,
+        le=100,
+        description="Calificación de 1 a 100 basada en formato, claridad y criterios INVEST",
+        examples=[75],
+    )
+    band: str = Field(
+        default="",
+        description="Banda de la calificación: Excepcional (90–100), Bueno (70–89), Regular (50–69), Crítico (<50)",
+        examples=["Bueno"],
+    )
+    evaluated: bool = Field(
+        default=True,
+        description="False si la evaluación de esta HU falló tras los reintentos (status del documento: partial)",
+        examples=[True],
     )
     feedback: list[str] = Field(
         default_factory=list,
@@ -37,7 +47,9 @@ class HUResult(BaseModel):
             "example": {
                 "hu_id": "HU-01",
                 "original_text": "Como cliente quiero ver el historial de compras para revisar mis pedidos anteriores.",
-                "score": 7.5,
+                "score": 75,
+                "band": "Bueno",
+                "evaluated": True,
                 "feedback": [
                     "El usuario 'cliente' es válido y concreto.",
                     "La funcionalidad es única y está bien delimitada.",
@@ -88,6 +100,25 @@ class ProjectSummary(BaseModel):
 # ── Respuesta completa del análisis ────────────────────────────────────────
 
 class AnalyzeResponse(BaseModel):
+    analysis_id: str | None = Field(
+        default=None,
+        description="Identificador opaco para recuperar el resultado en sesión vía GET /analyze/{analysis_id}",
+        examples=["3f0a1c2e-7b9d-4e51-9c0a-1b2c3d4e5f60"],
+    )
+    status: str = Field(
+        default="ok",
+        description="Resultado del análisis: 'ok', 'partial', 'no_project' o 'invalid'",
+        examples=["ok"],
+    )
+    message: str | None = Field(
+        default=None,
+        description="Mensaje para el usuario cuando status no es 'ok' (qué falta o por qué)",
+    )
+    story_count: int = Field(
+        default=0,
+        description="Número de Historias de Usuario detectadas en el documento",
+        examples=[5],
+    )
     hu_results: list[HUResult] = Field(
         default_factory=list,
         description="Análisis individual de cada HU encontrada en el archivo",
@@ -98,20 +129,30 @@ class AnalyzeResponse(BaseModel):
     )
     overall_score: float = Field(
         ...,
-        ge=1.0,
-        le=10.0,
-        description="Promedio ponderado de las calificaciones de todas las HU",
-        examples=[7.2],
+        ge=0.0,
+        le=100.0,
+        description="Promedio simple de las calificaciones (1–100) de las HU evaluadas (0 si no se analizó)",
+        examples=[72.0],
+    )
+    overall_band: str = Field(
+        default="",
+        description="Banda del promedio del documento (Excepcional/Bueno/Regular/Crítico)",
+        examples=["Bueno"],
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
+                "analysis_id": "3f0a1c2e-7b9d-4e51-9c0a-1b2c3d4e5f60",
+                "status": "ok",
+                "story_count": 1,
                 "hu_results": [
                     {
                         "hu_id": "HU-01",
                         "original_text": "Como cliente quiero ver el historial de compras para revisar mis pedidos anteriores.",
-                        "score": 7.5,
+                        "score": 75,
+                        "band": "Bueno",
+                        "evaluated": True,
                         "feedback": ["Usuario válido.", "Falta criterio de paginación."],
                         "suggestions": ["Agregar criterio de paginación."],
                     }
@@ -121,10 +162,35 @@ class AnalyzeResponse(BaseModel):
                     "stakeholders": ["Cliente registrado", "Administrador"],
                     "business_rules": ["Solo clientes registrados acceden al historial."],
                 },
-                "overall_score": 7.5,
+                "overall_score": 75.0,
+                "overall_band": "Bueno",
             }
         }
     }
+
+
+# ── Auth del panel admin (Epic 3) ───────────────────────────────────────────
+
+class AdminLoginRequest(BaseModel):
+    username: str | None = Field(
+        default=None,
+        description="Usuario del administrador (opcional en modo single-admin por .env)",
+    )
+    password: str = Field(..., description="Contraseña del administrador")
+
+
+class AdminRegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, description="Usuario del administrador")
+    password: str = Field(..., min_length=6, description="Contraseña (mínimo 6 caracteres)")
+
+
+class AdminExistsResponse(BaseModel):
+    registered: bool = Field(..., description="True si ya hay un administrador registrado")
+
+
+class TokenResponse(BaseModel):
+    access_token: str = Field(..., description="JWT firmado para el panel admin")
+    token_type: str = Field(default="bearer", description="Tipo de token (bearer)")
 
 
 # ── Respuesta de error estándar ─────────────────────────────────────────────

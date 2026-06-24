@@ -24,6 +24,7 @@ from reportlab.graphics import renderPDF
 from reportlab.platypus.flowables import Flowable
 
 from app.models.schemas import AnalyzeResponse
+from app.services.scoring import band_for
 
 # ── Paleta de colores ────────────────────────────────────────────────────────
 VIOLET      = colors.HexColor("#7C3AED")
@@ -42,20 +43,21 @@ WHITE       = colors.white
 PAGE_BG     = colors.HexColor("#FAFAF9")
 
 
+# Colores por banda (escala 1–100, centralizada en scoring.py).
+_BAND_COLORS = {
+    "Excepcional": (GREEN, GREEN_BG),
+    "Bueno": (GREEN, GREEN_BG),
+    "Regular": (AMBER, AMBER_BG),
+    "Crítico": (RED, RED_BG),
+}
+
+
 def _score_color(score: float):
-    if score >= 8:
-        return GREEN, GREEN_BG
-    if score >= 6:
-        return AMBER, AMBER_BG
-    return RED, RED_BG
+    return _BAND_COLORS.get(band_for(score), (RED, RED_BG))
 
 
 def _score_label(score: float) -> str:
-    if score >= 8:
-        return "Buena"
-    if score >= 6:
-        return "Regular"
-    return "Deficiente"
+    return band_for(score)
 
 
 # ── Flowable: badge de score circular ───────────────────────────────────────
@@ -82,7 +84,7 @@ class ScoreBadge(Flowable):
         # Número
         self.canv.setFillColor(fg)
         self.canv.setFont("Helvetica-Bold", self.size * 0.28)
-        label = f"{self.score:.1f}"
+        label = f"{int(round(self.score))}"
         self.canv.drawCentredString(cx, cy - self.size * 0.08, label)
 
 
@@ -170,7 +172,7 @@ def _build_styles():
 
 # ── Página de portada ────────────────────────────────────────────────────────
 
-def _build_cover(story, result: AnalyzeResponse, styles):
+def _build_cover(story, result: AnalyzeResponse, styles, subtitle: str = "Reporte de Análisis de Historias de Usuario"):
     score = result.overall_score
     fg, _ = _score_color(score)
 
@@ -190,7 +192,7 @@ def _build_cover(story, result: AnalyzeResponse, styles):
     story.append(cover_table)
 
     sub_data = [[
-        Paragraph("Reporte de Análisis de Historias de Usuario", styles["cover_sub"]),
+        Paragraph(subtitle, styles["cover_sub"]),
     ]]
     sub_table = Table(sub_data, colWidths=[17 * cm])
     sub_table.setStyle(TableStyle([
@@ -226,8 +228,8 @@ def _build_cover(story, result: AnalyzeResponse, styles):
         Paragraph("Calificación general", styles["label"]),
     ], [
         Paragraph(
-            f'<font color="#{_hex(score_color)}" size="40"><b>{score:.1f}</b></font>'
-            f'<font color="#{_hex(TEXT_GRAY)}" size="12"> / 10</font>',
+            f'<font color="#{_hex(score_color)}" size="40"><b>{score:.0f}</b></font>'
+            f'<font color="#{_hex(TEXT_GRAY)}" size="12"> / 100</font>',
             ParagraphStyle("sc", alignment=TA_CENTER, leading=50),
         ),
     ], [
@@ -323,7 +325,7 @@ def _build_hu_section(story, hu, styles):
             textColor=WHITE,
         )),
         Paragraph(
-            f'<b>{hu.score:.1f}</b> — {_score_label(hu.score)}',
+            f'<b>{hu.score}</b> — {_score_label(hu.score)}',
             ParagraphStyle("hu_sc", fontName="Helvetica-Bold", fontSize=10,
                            textColor=score_fg, alignment=TA_CENTER),
         ),
@@ -384,16 +386,15 @@ def _build_hu_section(story, hu, styles):
     story.append(KeepTogether(elements))
 
 
-# ── Función principal ────────────────────────────────────────────────────────
+# ── Builder común ────────────────────────────────────────────────────────────
 
-def generate_pdf(result: AnalyzeResponse) -> bytes:
-    """
-    Genera el reporte PDF completo a partir de un AnalyzeResponse.
-    Retorna los bytes del PDF.
+def _render(story: list, title: str) -> bytes:
+    """Builder común reutilizable: arma el documento A4 y devuelve los bytes.
+
+    Compartido por ambos reportes (reglas de negocio y validación de HUs); ambos
+    se generan SOLO desde el resultado persistido, nunca re-leyendo el documento.
     """
     buffer = io.BytesIO()
-    styles = _build_styles()
-
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -401,26 +402,59 @@ def generate_pdf(result: AnalyzeResponse) -> bytes:
         leftMargin=2 * cm,
         topMargin=2 * cm,
         bottomMargin=2 * cm,
-        title="Reporte HU Analyzer",
+        title=title,
         author="HU Analyzer",
     )
-
-    story = []
-
-    # Portada
-    _build_cover(story, result, styles)
-
-    # Resumen del proyecto
-    _build_project_summary(story, result, styles)
-
-    # Sección por HU
-    story.append(Paragraph("Análisis por Historia de Usuario", styles["section_title"]))
-    story.append(HRFlowable(width="100%", thickness=1, color=VIOLET_MID))
-    story.append(Spacer(1, 0.4 * cm))
-
-    for hu in result.hu_results:
-        _build_hu_section(story, hu, styles)
-
     doc.build(story)
     buffer.seek(0)
     return buffer.read()
+
+
+# ── Reportes ─────────────────────────────────────────────────────────────────
+
+def build_business_report(result: AnalyzeResponse) -> bytes:
+    """Reporte 'Validación de reglas de negocio' (objetivo, usuarios finales,
+    reglas de negocio). Story 2.1."""
+    styles = _build_styles()
+    story: list = []
+    _build_cover(story, result, styles, subtitle="Validación de Reglas de Negocio")
+    _build_project_summary(story, result, styles)
+    return _render(story, "Reglas de Negocio — HU Analyzer")
+
+
+def build_hu_report(result: AnalyzeResponse) -> bytes:
+    """Reporte 'Validación de HUs' (score, banda, observaciones y sugerencias por
+    HU, más la calificación general). Story 2.2."""
+    styles = _build_styles()
+    story: list = []
+    _build_cover(story, result, styles, subtitle="Validación de Historias de Usuario")
+
+    story.append(Paragraph("Análisis por Historia de Usuario", styles["section_title"]))
+    story.append(HRFlowable(width="100%", thickness=1, color=VIOLET_MID))
+    story.append(Spacer(1, 0.4 * cm))
+    for hu in result.hu_results:
+        _build_hu_section(story, hu, styles)
+
+    return _render(story, "Validación de HUs — HU Analyzer")
+
+
+# ── Función principal (combinada — compatibilidad) ───────────────────────────
+
+def generate_pdf(result: AnalyzeResponse) -> bytes:
+    """Reporte combinado (portada + reglas de negocio + análisis por HU).
+
+    Conservado para la descarga en sesión vía `POST /report`. Los reportes
+    individuales usan `build_business_report` / `build_hu_report`.
+    """
+    styles = _build_styles()
+    story: list = []
+    _build_cover(story, result, styles)
+    _build_project_summary(story, result, styles)
+
+    story.append(Paragraph("Análisis por Historia de Usuario", styles["section_title"]))
+    story.append(HRFlowable(width="100%", thickness=1, color=VIOLET_MID))
+    story.append(Spacer(1, 0.4 * cm))
+    for hu in result.hu_results:
+        _build_hu_section(story, hu, styles)
+
+    return _render(story, "Reporte HU Analyzer")

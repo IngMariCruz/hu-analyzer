@@ -9,6 +9,11 @@ venv/
 # Entorno
 .env
 
+# Base de datos local (resultados/métricas, Story 1.9)
+*.db
+*.sqlite
+*.sqlite3
+
 # Node
 node_modules/
 dist/
@@ -20,3 +25,10 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+#claude
+.claude
+
+#bmad method
+_bmad/
+*.user.toml
