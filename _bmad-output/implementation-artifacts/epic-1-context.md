@@ -29,5 +29,13 @@ El usuario anónimo sube un documento de HUs y recibe la evaluación completa po
 ## Stories del epic
 1.1 LLMProvider + migración GPT-4o mini · 1.2 ingesta en memoria · 1.3 gate pertinencia/validez · 1.4 segmentación · 1.5 evaluación por HU · 1.6 score/bandas/promedio · 1.7 sugerencias · 1.8 inferencia con minimización · 1.9 persistencia + analysis_id · 1.10 frontend resultados · 1.11 rate-limiting + topes.
 
-## Story actual: 1.1 — Abstracción LLMProvider y migración a GPT-4o mini
-Scope acotado: introducir `LLMProvider` + adaptador OpenAI con Structured Outputs, reemplazar la integración Anthropic en `analyzer.py`, swap de dependencias, modelo configurable, test con proveedor mockeado. NO incluye cambio de escala (1.6), gate (1.3), ni orquestación por-HU (1.5): preservar el comportamiento batch actual detrás de la interfaz.
+## Estado del epic: COMPLETO (1.1 → 1.11)
+Stories 1.1–1.11 implementadas. Hitos clave:
+- **1.5/1.8** orquestación híbrida en `analyzer.py` (1 llamada por HU bajo semáforo + 1 llamada de inferencia en `inference.py`), `status: partial` ante fallo de una HU.
+- **1.6** escala centralizada en `services/scoring.py` (1–100 + bandas); `HUResult.score:int`, `band`, `overall_band`; PDF auditado.
+- **1.7** sugerencias solo para HU con score < 90.
+- **1.9** persistencia SQLite sin identidad en `app/db/` + `services/persistence.py`; `analysis_id` opaco; `GET /analyze/{id}`; `original_text` nunca persistido.
+- **1.10** frontend ramifica por status (alerta/replantear/partial/resultados) en escala 1–100 con reintento.
+- **1.11** rate-limit efímero (slowapi por IP, `app/core/ratelimit.py`) + topes de archivo antes del LLM.
+
+Specs por story en `_bmad-output/implementation-artifacts/spec-1-*.md`. Tests: `pytest` en `backend/` (22 verdes). Siguiente epic: Epic 2 (reportes PDF desde el resultado persistido) — nota: el PDF actual se genera desde el `AnalyzeResponse` recibido; 2.1 pedirá generarlo desde el resultado persistido por `analysis_id` con builder común.

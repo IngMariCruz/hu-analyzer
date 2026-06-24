@@ -1,15 +1,16 @@
 # HU Analyzer — Estado del proyecto
 
 > Tablero de una página. Actualizar al cerrar cada story.
-> **Última actualización:** 2026-06-23 (hasta Story 1.4)
+> **Última actualización:** 2026-06-24 (los 3 epics completos — 18/18 stories)
 
 ---
 
 ## Resumen
 
-- **Versión:** v1 (demo/portafolio)
-- **Stack:** FastAPI + React/Vite/Tailwind · LLM: OpenAI GPT-4o mini
-- **Progreso:** **4 / 18 stories** ✅
+- **Versión:** v1 (demo/portafolio) — **funcionalmente completa**
+- **Stack:** FastAPI + React/Vite/Tailwind · LLM: OpenAI GPT-4o mini · SQLite/SQLAlchemy
+- **Progreso:** **18 / 18 stories** ✅ (Epics 1, 2 y 3 completos)
+- **Tests:** 30 verdes (`backend/`)
 - **Rama actual:** `feature/story-1-1-llm-provider`
 
 ---
@@ -25,28 +26,28 @@ Leyenda: ✅ hecho · 🔜 siguiente · ⬜ pendiente
 | 1.2 | Subida y extracción de texto en memoria | ✅ |
 | 1.3 | Gate de pertinencia y validez del documento | ✅ |
 | 1.4 | Segmentación del documento en HUs | ✅ |
-| 1.5 | Evaluación por HU (formato, INVEST, coherencia, ambigüedad) | 🔜 |
-| 1.6 | Calificación 1–100, bandas y promedio | ⬜ |
-| 1.7 | Sugerencias de mejora por HU | ⬜ |
-| 1.8 | Inferencia de negocio con minimización | ⬜ |
-| 1.9 | Persistencia del resultado y recuperación por `analysis_id` | ⬜ |
-| 1.10 | Visualización de resultados en el frontend | ⬜ |
-| 1.11 | Endurecimiento — rate-limiting y topes de archivo | ⬜ |
+| 1.5 | Evaluación por HU (formato, INVEST, coherencia, ambigüedad) | ✅ |
+| 1.6 | Calificación 1–100, bandas y promedio | ✅ |
+| 1.7 | Sugerencias de mejora por HU | ✅ |
+| 1.8 | Inferencia de negocio con minimización | ✅ |
+| 1.9 | Persistencia del resultado y recuperación por `analysis_id` | ✅ |
+| 1.10 | Visualización de resultados en el frontend | ✅ |
+| 1.11 | Endurecimiento — rate-limiting y topes de archivo | ✅ |
 
 ### Epic 2 — Reportes descargables en PDF
 | # | Story | Estado |
 |---|-------|--------|
-| 2.1 | Builder común + reporte de reglas de negocio | ⬜ |
-| 2.2 | Reporte de validación de HUs | ⬜ |
-| 2.3 | Descarga de reportes desde el frontend | ⬜ |
+| 2.1 | Builder común + reporte de reglas de negocio | ✅ |
+| 2.2 | Reporte de validación de HUs | ✅ |
+| 2.3 | Descarga de reportes desde el frontend | ✅ |
 
 ### Epic 3 — Panel de administrador y métricas
 | # | Story | Estado |
 |---|-------|--------|
-| 3.1 | Login del administrador con JWT | ⬜ |
-| 3.2 | Métricas de uso por periodo | ⬜ |
-| 3.3 | Métricas por banda de calificación | ⬜ |
-| 3.4 | Listado de resultados sin documentos | ⬜ |
+| 3.1 | Login del administrador con JWT | ✅ |
+| 3.2 | Métricas de uso por periodo | ✅ |
+| 3.3 | Métricas por banda de calificación | ✅ |
+| 3.4 | Listado de resultados sin documentos | ✅ |
 
 ---
 
@@ -66,7 +67,23 @@ npm run dev
 # → http://localhost:5173
 ```
 
-> Escala actual de score: **0–10** (cambia a 1–100 en la Story 1.6). Aún sin gate de validez, persistencia ni panel admin.
+> Escala de score: **1–100** con bandas (Excepcional/Bueno/Regular/Crítico). Análisis con orquestación híbrida (1 llamada por HU + 1 de inferencia), gate de pertinencia/validez, persistencia SQLite sin identidad (`analysis_id` opaco) y rate-limiting por IP. Reportes PDF (`?type=business|hu`) desde el resultado persistido y panel admin con JWT operativos.
+> La base de datos local `backend/hu_analyzer.db` se crea sola al arrancar (ignorada en git).
+
+### Endpoints
+| Método | Ruta | Auth | Para |
+|--------|------|------|------|
+| POST | `/api/v1/analyze` | — (rate-limit) | Subir y analizar documento |
+| GET | `/api/v1/analyze/{id}` | — | Recuperar resultado por `analysis_id` |
+| GET | `/api/v1/report/{id}?type=business\|hu` | — | Descargar reporte PDF |
+| GET | `/api/v1/admin/exists` | — | ¿Hay admin? (decide Registro vs Login) |
+| POST | `/api/v1/admin/register` | — | Registro de primer uso (bloqueado si ya existe) |
+| POST | `/api/v1/admin/login` | — | Obtener JWT admin (`{username, password}`) |
+| GET | `/api/v1/admin/metrics` | JWT | Usos por día/semana/mes/año |
+| GET | `/api/v1/admin/metrics/bands` | JWT | Distribución por banda |
+| GET | `/api/v1/admin/analyses` | JWT | Listado de análisis (sin documentos) |
+
+> **Panel admin (frontend):** ruta **`/admin`** (http://localhost:5173/admin). En el primer uso muestra **Registro** (crea el admin en la base); luego **Login**. El JWT se guarda en `localStorage`. Alternativa sin registro: poner un hash en `ADMIN_PASSWORD_HASH` (+ `JWT_SECRET`) en `.env` con `python -c "from app.core.security import hash_password; print(hash_password('TU_PASSWORD'))"`.
 
 ## Verificar / ver estado
 

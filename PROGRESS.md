@@ -6,7 +6,28 @@
 
 ## Estado del proyecto
 
-**Fase actual:** Sesión 6 completada ✅ — Frontend listo, falta integración final
+**Fase actual:** v1 funcionalmente completa ✅ — Epics 1, 2 y 3 (18/18 stories) + panel admin con UI, 32 tests verdes.
+
+> Detalle por story en [STATUS.md](STATUS.md) y los specs en `_bmad-output/implementation-artifacts/`.
+
+---
+
+## Sesión 7 — Implementación BMAD de Epics 1–3 (2026-06-24)
+
+Migración de la base brownfield a la arquitectura v1 (ver `_bmad-output/planning-artifacts/architecture.md`):
+
+- **LLM:** Anthropic/Claude → **OpenAI GPT-4o mini** detrás de una interfaz `LLMProvider` con Structured Outputs.
+- **Orquestación híbrida:** 1 llamada por HU en paralelo (`asyncio.gather` + semáforo) + 1 llamada de inferencia de negocio; `status: partial` si una HU falla tras reintentos.
+- **Gate** de pertinencia/validez antes del scoring (`no_project` / `invalid` / `ok`).
+- **Escala 1–100 + bandas** centralizadas en `services/scoring.py` (Excepcional/Bueno/Regular/Crítico).
+- **Inferencia de negocio** con minimización (objetivo, usuarios finales, reglas; sin verbatim/PII).
+- **Persistencia SQLite/SQLAlchemy sin identidad** (`analysis`, `story_result`, `business_inference`); `analysis_id` opaco; `GET /analyze/{id}`. **Nunca** se persiste el documento ni el texto extraído.
+- **Reportes PDF** (builder común): `GET /report/{id}?type=business|hu` desde el resultado persistido.
+- **Panel admin (JWT + bcrypt):** registro de primer uso + login (usuario/contraseña, con respaldo al hash de `.env`) + métricas por periodo + distribución por banda + listado de análisis (sin documentos).
+- **Frontend admin:** `react-router-dom` con rutas `/` (analizador) y `/admin` (registro/login/dashboard). JWT en `localStorage`.
+- **Endurecimiento:** rate-limiting efímero por IP (slowapi) + topes de tipo/tamaño antes del LLM.
+
+Nuevos módulos backend: `services/{scoring,inference,persistence,metrics,admin_service}.py`, `services/llm/`, `db/`, `core/{ratelimit,security}.py`, `api/v1/routes/admin.py`. Frontend: `pages/{AnalyzerPage,AdminPage}.jsx`, `components/admin/`, `services/adminApi.js`. Tests: `tests/test_{analyzer,scoring,persistence,route,report,admin,gate,parser}.py` (32 verdes).
 
 ---
 
@@ -59,7 +80,8 @@ cp .env.example .env        # Mac/Linux
 copy .env.example .env      # Windows
 
 # 5. Editar .env y agregar tu API key real
-# ANTHROPIC_API_KEY=sk-ant-...
+# OPENAI_API_KEY=sk-...
+# (y para el panel admin: ADMIN_PASSWORD_HASH + JWT_SECRET)
 
 # 6. Levantar el servidor
 uvicorn app.main:app --reload

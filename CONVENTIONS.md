@@ -50,9 +50,10 @@ class ResultCard extends Component { ... }
 ## API REST
 
 - **Versionado:** `/api/v1/...`
-- **Verbos HTTP:** POST para análisis con archivo
-- **Respuestas exitosas:** HTTP 200 con `AnalyzeResponse`
-- **Errores:** HTTP 422 (validación), 500 (error interno), siempre con mensaje descriptivo
+- **Verbos HTTP:** POST para análisis/login; GET para recuperar resultado, reportes y métricas.
+- **Respuestas exitosas:** HTTP 200 (JSON `AnalyzeResponse` o `application/pdf` en reportes).
+- **Errores:** 422 (tipo no soportado/validación), 413 (tamaño), 429 (rate-limit), 401 (admin sin/JWT inválido), 404 (`analysis_id` inexistente), 500 (interno) — siempre con mensaje descriptivo.
+- **Auth admin:** `Authorization: Bearer <JWT>` en `/api/v1/admin/*` (excepto `login`).
 
 ```json
 // Estructura de error estándar
@@ -64,29 +65,30 @@ class ResultCard extends Component { ... }
 
 ---
 
-## Módulos de análisis
+## Módulos de análisis (Strategy)
 
-- Cada módulo vive en `services/modules/`
-- Hereda de `BaseModule`
-- Implementa SOLO el método `analyze(hu_text: str) -> ModuleResult`
-- No tienen estado (stateless)
-- No llaman a la API directamente: reciben el contexto del `Analyzer`
+- Cada módulo vive en `services/modules/`, hereda de `BaseModule` y es stateless.
+- Aporta `name`, `weight`, `response_key`, `analysis_criteria` y `parse_response(module_data)`.
+- **No** orquesta su propia llamada al LLM: interpreta y puntúa su sección del JSON estructurado.
+- Se registran en `services/modules/__init__.py` (`ACTIVE_MODULES`).
+- El score 1–100 y las bandas se calculan en `services/scoring.py` (no en el checker).
 
 ---
 
-## Manejo de prompts a Claude
+## Manejo de prompts al LLM (OpenAI GPT-4o mini vía `LLMProvider`)
 
-- Los prompts viven en el archivo del módulo correspondiente como constantes
-- Se nombran: `PROMPT_NOMBRE_MODULO`
-- Siempre pedir respuesta en JSON estructurado
-- Incluir instrucción: "Responde SOLO con JSON, sin markdown ni texto adicional"
+- Los prompts viven como constantes `_SYSTEM_PROMPT` / funciones `_build_*_prompt` en el módulo correspondiente.
+- Usar **Structured Outputs**: `provider.complete_structured(system, prompt, schema=ModeloPydantic)` — el JSON es válido por construcción (no pedir "responde SOLO con JSON").
+- Los esquemas de respuesta viven en `services/llm/schemas.py` (Pydantic, listas estáticas, compatibles con el modo estricto de OpenAI).
+- **Nunca** loguear el contenido del documento ni el prompt (solo metadatos: tipo, tamaño, duración, tokens).
+- Minimización: los prompts de inferencia prohíben verbatim, nombres propios e identificadores.
 
 ```python
-PROMPT_FORMAT_CHECKER = """
-Eres un experto en metodologías ágiles. Analiza la siguiente Historia de Usuario...
-Responde SOLO con un JSON con esta estructura exacta:
-{ "score": 0-10, "issues": [...], "suggestions": [...] }
-"""
+data = await provider.complete_structured(
+    system=_SYSTEM_PROMPT,
+    prompt=_build_hu_prompt(hu),
+    schema=HUEvaluationResponse,   # { modules: [{ key, score, issues, suggestions }] }
+)
 ```
 
 ---
